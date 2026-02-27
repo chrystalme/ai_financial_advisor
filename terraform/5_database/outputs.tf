@@ -52,7 +52,7 @@ output "setup_instructions" {
     
     To set up the database schema:
     cd backend/database
-    uv run migrate.py
+    uv run run_migrations.py
     
     To load sample data:
     uv run reset_db.py --with-test-data

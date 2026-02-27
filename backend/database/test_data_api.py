@@ -209,7 +209,7 @@ def test_data_api(cluster_arn, secret_arn, region):
     print("\n" + "=" * 50)
     print("✅ Data API is working correctly!")
     print("\n📝 Next steps:")
-    print("1. Run migrations to create tables: uv run migrate.py")
+    print("1. Run migrations to create tables: uv run run_migrations.py")
     print("2. Load seed data: uv run seed_data.py")
     print("3. Test the database package: uv run test_db.py")
     
