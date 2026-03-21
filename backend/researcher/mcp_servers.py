@@ -28,7 +28,7 @@ def create_playwright_mcp_server(timeout_seconds=60):
     import glob
     if os.path.exists("/.dockerenv") or os.environ.get("AWS_EXECUTION_ENV"):
         # Find the installed Chrome executable dynamically
-        chrome_paths = glob.glob("/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome")
+        chrome_paths = glob.glob("/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome")
         if chrome_paths:
             # Use the first (should be only one) Chrome installation found
             chrome_path = chrome_paths[0]
@@ -37,7 +37,7 @@ def create_playwright_mcp_server(timeout_seconds=60):
         else:
             # Fallback to a known path if glob doesn't find it
             print("DEBUG: Chrome not found via glob, using fallback path")
-            args.extend(["--executable-path", "/root/.cache/ms-playwright/chromium-1187/chrome-linux/chrome"])
+            args.extend(["--executable-path", "/root/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome"])
     
     params = {
         "command": "npx",
