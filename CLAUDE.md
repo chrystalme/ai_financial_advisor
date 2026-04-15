@@ -35,6 +35,79 @@ Alex is a SaaS product that provides insights on users' equity portfolios throug
 
 ---
 
+## Three Cloud Tracks: AWS, GCP, Azure
+
+Alex has three parallel deployment tracks. Students pick ONE and stick with it end-to-end — do not mix.
+
+| Concern | AWS track | GCP / Vertex AI track | Azure track |
+|---|---|---|---|
+| Guides | `guides/1_permissions.md` … `8_enterprise.md` | `guides/1_permissions_gcp.md` … `8_enterprise_gcp.md` | `guides/1_permissions_azure.md` … `8_enterprise_azure.md` |
+| Terraform | `terraform/2_sagemaker/` … `8_enterprise/` | `terraform/2_vertexai_gcp/` … `8_enterprise_gcp/` | `terraform/2_openai_azure/` … `8_enterprise_azure/` |
+| Embeddings | SageMaker Serverless (all-MiniLM-L6-v2, 384) | Vertex AI `text-embedding-005` (768) | Azure OpenAI `text-embedding-3-small` (1536) |
+| Vector store | S3 Vectors | Vertex AI Vector Search | Azure AI Search (vector index) |
+| LLM | Bedrock Nova Pro via LiteLLM | Vertex AI Gemini 2.5 Pro via LiteLLM | Azure OpenAI GPT-4o via LiteLLM (`azure/<deployment>`) |
+| Compute | Lambda + App Runner | Cloud Run (functions + services) | Azure Functions + Container Apps |
+| Queue | SQS | Pub/Sub | Azure Service Bus |
+| Database | Aurora Serverless v2 + Data API | Cloud SQL for PostgreSQL | Azure Database for PostgreSQL Flexible Server |
+| CDN / static | CloudFront + S3 | Cloud CDN + Cloud Storage | Azure Front Door + Static Web Apps |
+| API edge | API Gateway | API Gateway / Cloud Run ingress | Azure API Management (Consumption) |
+| Auth (unchanged) | Clerk | Clerk | Clerk |
+| Observability (unchanged) | LangFuse + CloudWatch | LangFuse + Cloud Logging/Monitoring | LangFuse + Azure Monitor / App Insights |
+
+**Backend Python code is shared across all three tracks.** Switching is via environment variables only; LiteLLM handles Bedrock, Vertex AI, and Azure OpenAI natively.
+
+- **AWS**: auth via `aws configure`; LiteLLM needs `AWS_REGION_NAME`.
+- **GCP**: auth via `gcloud auth application-default login`; LiteLLM reads ADC automatically.
+- **Azure**: auth via `az login`; LiteLLM needs `AZURE_API_BASE`, `AZURE_API_KEY`, `AZURE_API_VERSION` and the model string `azure/<deployment_name>`.
+
+---
+
+## Commands Reference
+
+Python is always run via `uv` (never bare `python` or `pip`).
+
+**Local agent testing** (from any `backend/<agent>/` dir):
+```
+MOCK_LAMBDAS=true uv run test_simple.py   # local, mocked orchestration
+uv run test_full.py                        # hits deployed Lambda / Cloud Run
+```
+
+**Lambda / Cloud Run packaging** (Docker Desktop must be running):
+```
+uv run package_docker.py
+```
+
+**Terraform** (each directory is independent; copy tfvars first):
+```
+cd terraform/<N_name>
+cp terraform.tfvars.example terraform.tfvars   # edit values
+terraform init && terraform apply
+terraform output                                # used as inputs to later guides
+```
+
+**Frontend**:
+```
+cd frontend && npm install && npm run dev      # local dev
+uv run scripts/deploy.py                        # deploy frontend to cloud
+```
+
+**Full-stack local run**:
+```
+uv run scripts/run_local.py
+```
+
+**Teardown**: destroy terraform directories in reverse order (8 → 2). `scripts/destroy.py` automates this.
+
+**Log tailing**:
+- AWS: `aws logs tail /aws/lambda/alex-<agent> --follow`
+- GCP: `gcloud run services logs tail alex-<agent> --region <region>`
+
+**Test payload**: `test_payload.json` at repo root is a sample agent invocation payload used by `test_full.py` and manual Lambda/Cloud Run invocations.
+
+**Note on duplicate docs**: `AGENTS.md` at the repo root duplicates much of this file. If you edit one, edit both (or collapse one into a pointer).
+
+---
+
 ## Directory Structure
 
 ```
