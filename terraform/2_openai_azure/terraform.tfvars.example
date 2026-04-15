@@ -1,0 +1,12 @@
+subscription_id            = "your-subscription-id"
+resource_group             = "alex-rg"
+location                   = "eastus"
+# openai_name              = ""   # auto-generated if empty
+chat_deployment_name       = "gpt-4o"
+chat_model_name            = "gpt-4o"
+chat_model_version         = "2024-08-06"
+chat_sku_name              = "GlobalStandard"
+chat_sku_capacity          = 50
+embedding_deployment_name  = "text-embedding-3-small"
+embedding_model_version    = "1"
+embedding_sku_capacity     = 120

@@ -1,0 +1,8 @@
+subscription_id                   = "your-subscription-id"
+resource_group                    = "alex-rg"
+location                          = "eastus"
+search_sku                        = "free"
+embedding_dimensions              = 1536
+azure_openai_endpoint             = "https://alex-openai-xxxxxx.openai.azure.com/"
+azure_openai_key                  = "from guide 2 output openai_primary_key"
+azure_openai_embedding_deployment = "text-embedding-3-small"

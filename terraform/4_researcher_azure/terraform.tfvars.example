@@ -1,0 +1,13 @@
+subscription_id         = "your-subscription-id"
+resource_group          = "alex-rg"
+location                = "eastus"
+azure_openai_endpoint   = "https://alex-openai-xxxxxx.openai.azure.com/"
+azure_openai_key        = "from guide 2"
+azure_openai_deployment = "gpt-4o"
+alex_api_endpoint       = "from guide 3"
+alex_api_key            = "from guide 3"
+# container_image       = "alexxxxxxx.azurecr.io/researcher:latest"
+min_replicas            = 0
+max_replicas            = 3
+scheduler_enabled       = false
+schedule_cron           = "0 */6 * * *"

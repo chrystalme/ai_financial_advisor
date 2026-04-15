@@ -1,0 +1,23 @@
+subscription_id               = "your-subscription-id"
+resource_group                = "alex-rg"
+location                      = "eastus"
+frontend_host                 = "swa"     # or "storage"
+frontend_domain               = ""
+
+clerk_jwks_url                = "https://<your-clerk>/.well-known/jwks.json"
+clerk_issuer                  = "https://<your-clerk>"
+
+container_app_environment_id  = "from guide 4 output"
+acr_id                        = "/subscriptions/.../providers/Microsoft.ContainerRegistry/registries/alexxxxxxx"
+
+servicebus_namespace          = "alex-sb-xxxxxx"
+servicebus_queue              = "alex-agent-jobs"
+
+postgres_host                 = "alex-db-xxxxxx.postgres.database.azure.com"
+db_secret_uri                 = "https://alex-dbkv-xxxxxx.vault.azure.net/secrets/alex-db-credentials"
+key_vault_id                  = "/subscriptions/.../providers/Microsoft.KeyVault/vaults/alex-dbkv-xxxxxx"
+
+azure_openai_endpoint         = "https://alex-openai-xxxxxx.openai.azure.com/"
+azure_openai_deployment       = "gpt-4o"
+
+# api_container_image         = "alexxxxxxx.azurecr.io/api:latest"

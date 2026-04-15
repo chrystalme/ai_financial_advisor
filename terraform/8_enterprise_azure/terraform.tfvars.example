@@ -1,0 +1,19 @@
+subscription_id          = "your-subscription-id"
+resource_group           = "alex-rg"
+location                 = "eastus"
+notification_email       = "you@example.com"
+
+api_container_app_id     = "/subscriptions/.../containerApps/alex-api"
+api_fqdn                 = "alex-api.xxxxxxxx.eastus.azurecontainerapps.io"
+
+postgres_server_id       = "/subscriptions/.../flexibleServers/alex-db-xxxxxx"
+servicebus_namespace_id  = "/subscriptions/.../namespaces/alex-sb-xxxxxx"
+openai_account_id        = "/subscriptions/.../accounts/alex-openai-xxxxxx"
+
+agent_function_app_ids   = [
+  # "/subscriptions/.../sites/alex-planner-xxxxxx",
+  # ...
+]
+
+key_vault_id             = "/subscriptions/.../vaults/alex-dbkv-xxxxxx"
+enable_content_safety    = true

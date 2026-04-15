@@ -1,0 +1,9 @@
+subscription_id          = "your-subscription-id"
+resource_group           = "alex-rg"
+location                 = "eastus"
+db_sku                   = "B_Standard_B1ms"
+db_storage_mb            = 32768
+db_admin_user            = "alex_admin"
+# db_admin_password      = ""        # auto-generated if empty
+# client_ip              = ""        # auto-detected if empty
+allow_all_azure_services = true
