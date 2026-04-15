@@ -1,0 +1,6 @@
+project_id          = "your-gcp-project-id"
+region              = "us-central1"
+notification_email  = "you@example.com"
+vertex_model_id     = "gemini-2.5-pro"
+api_service_name    = "alex-api"
+agent_service_names = ["alex-planner", "alex-tagger", "alex-reporter", "alex-charter", "alex-retirement"]

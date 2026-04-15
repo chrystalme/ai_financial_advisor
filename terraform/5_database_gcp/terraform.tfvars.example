@@ -1,0 +1,8 @@
+project_id          = "your-gcp-project-id"
+region              = "us-central1"
+db_tier             = "db-custom-1-3840"
+db_name             = "alex"
+db_user             = "alex_app"
+# db_password       = ""   # auto-generated if empty
+deletion_protection = false
+activation_policy   = "ALWAYS"   # set NEVER between sessions to save cost

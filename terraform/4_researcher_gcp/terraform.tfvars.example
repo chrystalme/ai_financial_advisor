@@ -1,0 +1,8 @@
+project_id        = "your-gcp-project-id"
+region            = "us-central1"
+vertex_model_id   = "vertex_ai/gemini-2.5-pro"
+alex_api_endpoint = "https://... from guide 3"
+alex_api_key      = "... from guide 3"
+scheduler_enabled = false
+schedule_cron     = "0 */6 * * *"
+# container_image = "us-central1-docker.pkg.dev/<proj>/alex/researcher:latest"

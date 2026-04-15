@@ -1,0 +1,6 @@
+project_id           = "your-gcp-project-id"
+region               = "us-central1"
+embedding_dimensions = 768
+deployed_index_id    = "alex_docs_v1"
+index_deployed       = true
+# api_key_value      = ""   # leave empty to auto-generate

@@ -1,0 +1,6 @@
+# Guide 2 (GCP): Vertex AI embeddings
+# Copy to terraform.tfvars and fill in.
+
+project_id      = "your-gcp-project-id"
+region          = "us-central1"
+embedding_model = "text-embedding-005"

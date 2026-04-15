@@ -1,0 +1,10 @@
+project_id               = "your-gcp-project-id"
+region                   = "us-central1"
+frontend_host            = "external"   # "gcs" to host via GCS+CDN, "external" for Vercel/Firebase
+frontend_domain          = ""           # required if frontend_host=gcs
+clerk_jwks_url           = "https://<your-clerk-instance>/.well-known/jwks.json"
+clerk_issuer             = "https://<your-clerk-instance>"
+cloudsql_connection_name = "your-gcp-project-id:us-central1:alex-db"
+db_secret_name           = "alex-db-credentials"
+jobs_topic               = "alex-agent-jobs"
+# api_container_image    = "us-central1-docker.pkg.dev/<proj>/alex/api:latest"
