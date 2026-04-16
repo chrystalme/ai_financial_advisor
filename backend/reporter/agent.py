@@ -185,15 +185,22 @@ async def get_market_insights(
 def create_agent(job_id: str, portfolio_data: Dict[str, Any], user_data: Dict[str, Any], db=None):
     """Create the reporter agent with tools and context."""
 
-    # Get model configuration
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-    # Set region for LiteLLM Bedrock calls
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-    logger.info(f"DEBUG: BEDROCK_REGION from env = {bedrock_region}")
-    os.environ["AWS_REGION_NAME"] = bedrock_region
-    logger.info(f"DEBUG: Set AWS_REGION_NAME to {bedrock_region}")
+    # Get model configuration based on cloud provider
+    provider = os.environ.get("CLOUD_PROVIDER", "aws").lower()
+    if provider == "gcp":
+        MODEL = os.environ.get("MODEL_ID", "vertex_ai/gemini-2.5-pro")
+    elif provider == "azure":
+        MODEL = os.environ.get("MODEL_ID", "azure/gpt-4o")
+    else:
+        REGION = os.environ.get("AWS_REGION_NAME", os.getenv("BEDROCK_REGION", "us-west-2"))
+        os.environ["AWS_REGION_NAME"] = REGION
+        os.environ["AWS_REGION"] = REGION
+        os.environ["AWS_DEFAULT_REGION"] = REGION
+        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+        MODEL = os.environ.get("MODEL_ID", f"bedrock/{model_id}")
+    logger.info(f"DEBUG: Using model {MODEL} with provider {provider}")
 
-    model = LitellmModel(model=f"bedrock/{model_id}")
+    model = LitellmModel(model=MODEL)
 
     # Create context
     context = ReporterContext(

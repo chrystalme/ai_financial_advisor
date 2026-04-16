@@ -171,14 +171,20 @@ async def classify_instrument(
         Complete classification with allocations
     """
     try:
-        # Initialize the model
-        model_id = BEDROCK_MODEL_ID
+        # Initialize the model based on cloud provider
+        provider = os.environ.get("CLOUD_PROVIDER", "aws").lower()
+        if provider == "gcp":
+            MODEL = os.environ.get("MODEL_ID", "vertex_ai/gemini-2.5-pro")
+        elif provider == "azure":
+            MODEL = os.environ.get("MODEL_ID", "azure/gpt-4o")
+        else:
+            REGION = os.environ.get("AWS_REGION_NAME", os.getenv("BEDROCK_REGION", "us-west-2"))
+            os.environ["AWS_REGION_NAME"] = REGION
+            os.environ["AWS_REGION"] = REGION
+            os.environ["AWS_DEFAULT_REGION"] = REGION
+            MODEL = os.environ.get("MODEL_ID", f"bedrock/{BEDROCK_MODEL_ID}")
 
-        # Set region for LiteLLM Bedrock calls
-        bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-        os.environ["AWS_REGION_NAME"] = bedrock_region
-
-        model = LitellmModel(model=f"bedrock/{model_id}")
+        model = LitellmModel(model=MODEL)
 
         # Create the classification task
         task = CLASSIFICATION_PROMPT.format(

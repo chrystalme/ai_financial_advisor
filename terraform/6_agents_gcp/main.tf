@@ -36,11 +36,45 @@ resource "google_pubsub_topic" "dlq" {
 }
 
 # --- Per-agent source archives --------------------------------------------
+# Each agent imports `from src import Database` — the database package lives
+# at backend/database/src/.  Cloud Functions only sees the zip, so we merge
+# each agent dir + the shared database src/ into a staging directory and zip
+# that.  A null_resource copies the files; archive_file zips the result.
+
+resource "null_resource" "agent_stage" {
+  for_each = toset(var.agents)
+
+  triggers = {
+    agent_hash = sha1(join("", [
+      for f in fileset("${path.module}/../../backend/${each.key}", "**") :
+      filesha1("${path.module}/../../backend/${each.key}/${f}")
+    ]))
+    db_hash = sha1(join("", [
+      for f in fileset("${path.module}/../../backend/database/src", "**") :
+      filesha1("${path.module}/../../backend/database/src/${f}")
+    ]))
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      rm -rf ${path.module}/.stage/${each.key}
+      mkdir -p ${path.module}/.stage/${each.key}
+      cp -r ${path.module}/../../backend/${each.key}/. ${path.module}/.stage/${each.key}/
+      cp -r ${path.module}/../../backend/database/src ${path.module}/.stage/${each.key}/src
+      cd ${path.module}/.stage/${each.key}
+      sed -i '' '/alex-database/d' pyproject.toml
+      sed -i '' 's/"functions-framework>=3.0.0",/"functions-framework>=3.0.0",\n    "google-cloud-secret-manager>=2.20.0",\n    "psycopg>=3.1.0",/' pyproject.toml
+      rm -f uv.lock
+    EOT
+  }
+}
+
 data "archive_file" "agent" {
   for_each    = toset(var.agents)
   type        = "zip"
-  source_dir  = "${path.module}/../../backend/${each.key}"
+  source_dir  = "${path.module}/.stage/${each.key}"
   output_path = "${path.module}/.build/${each.key}.zip"
+  depends_on  = [null_resource.agent_stage]
 }
 
 resource "google_storage_bucket_object" "agent_src" {
@@ -92,7 +126,7 @@ resource "google_cloudfunctions2_function" "agent" {
   location = var.region
 
   build_config {
-    runtime     = "python311"
+    runtime     = "python312"
     entry_point = "handler"
     environment_variables = {
       GOOGLE_FUNCTION_SOURCE = "main_gcp.py"

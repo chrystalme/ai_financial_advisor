@@ -15,8 +15,9 @@ from agents.extensions.models.litellm_model import LitellmModel
 
 logger = logging.getLogger()
 
-# Initialize Lambda client
-lambda_client = boto3.client("lambda")
+def _get_lambda_client():
+    return boto3.client("lambda")
+
 
 # Lambda function names from environment
 TAGGER_FUNCTION = os.getenv("TAGGER_FUNCTION", "alex-tagger")
@@ -45,7 +46,7 @@ async def invoke_lambda_agent(
     try:
         logger.info(f"Invoking {agent_name} Lambda: {function_name}")
 
-        response = lambda_client.invoke(
+        response = _get_lambda_client().invoke(
             FunctionName=function_name,
             InvocationType="RequestResponse",
             Payload=json.dumps(payload),
@@ -111,7 +112,7 @@ def handle_missing_instruments(job_id: str, db) -> None:
         )
 
         try:
-            response = lambda_client.invoke(
+            response = _get_lambda_client().invoke(
                 FunctionName=TAGGER_FUNCTION,
                 InvocationType="RequestResponse",
                 Payload=json.dumps({"instruments": missing}),
@@ -262,13 +263,21 @@ def create_agent(job_id: str, portfolio_summary: Dict[str, Any], db):
     # Create context for tools
     context = PlannerContext(job_id=job_id)
 
-    # Get model configuration
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
-    # Set region for LiteLLM Bedrock calls
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-west-2")
-    os.environ["AWS_REGION_NAME"] = bedrock_region
+    # Get model configuration based on cloud provider
+    provider = os.environ.get("CLOUD_PROVIDER", "aws").lower()
+    if provider == "gcp":
+        MODEL = os.environ.get("MODEL_ID", "vertex_ai/gemini-2.5-pro")
+    elif provider == "azure":
+        MODEL = os.environ.get("MODEL_ID", "azure/gpt-4o")
+    else:
+        REGION = os.environ.get("AWS_REGION_NAME", os.getenv("BEDROCK_REGION", "us-west-2"))
+        os.environ["AWS_REGION_NAME"] = REGION
+        os.environ["AWS_REGION"] = REGION
+        os.environ["AWS_DEFAULT_REGION"] = REGION
+        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+        MODEL = os.environ.get("MODEL_ID", f"bedrock/{model_id}")
 
-    model = LitellmModel(model=f"bedrock/{model_id}")
+    model = LitellmModel(model=MODEL)
 
     tools = [
         invoke_reporter,

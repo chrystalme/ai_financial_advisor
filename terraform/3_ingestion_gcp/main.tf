@@ -115,7 +115,7 @@ resource "google_cloudfunctions2_function" "ingest" {
   location = var.region
 
   build_config {
-    runtime     = "python311"
+    runtime     = "python312"
     entry_point = "handler"
     environment_variables = {
       GOOGLE_FUNCTION_SOURCE = "main_gcp.py"

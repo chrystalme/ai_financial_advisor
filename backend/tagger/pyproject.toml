@@ -5,6 +5,7 @@ requires-python = ">=3.12"
 dependencies = [
     "alex-database",
     "boto3>=1.40.9",
+    "functions-framework>=3.0.0",
     "langfuse>=3.3.4",
     "openai-agents[litellm]>=0.2.6",
     "pydantic>=2.11.7",
