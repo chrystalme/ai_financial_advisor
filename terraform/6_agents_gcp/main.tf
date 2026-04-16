@@ -184,6 +184,15 @@ resource "null_resource" "planner_agent_urls" {
   }
 }
 
+# --- Grant planner SA permission to invoke its own Cloud Run service ------
+resource "google_cloud_run_service_iam_member" "planner_invoke" {
+  location = var.region
+  project  = var.project_id
+  service  = google_cloudfunctions2_function.agent["planner"].name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.agent["planner"].email}"
+}
+
 # --- Pub/Sub triggers the planner ----------------------------------------
 resource "google_pubsub_subscription" "planner" {
   name  = "${local.prefix}-planner-sub"
