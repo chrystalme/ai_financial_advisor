@@ -136,6 +136,7 @@ export default function Analysis() {
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('en-US', {
+      timeZone: 'Europe/Kiev',
       month: 'long',
       day: 'numeric',
       year: 'numeric',
