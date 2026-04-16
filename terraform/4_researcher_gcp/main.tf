@@ -109,6 +109,14 @@ resource "google_cloud_run_v2_service" "researcher" {
         name  = "OPENAI_API_KEY"
         value = var.openai_api_key
       }
+      env {
+        name  = "SERPER_API_KEY"
+        value = var.serper_api_key
+      }
+      env {
+        name  = "ALPHA_VANTAGE_API_KEY"
+        value = var.alpha_vantage_api_key
+      }
     }
   }
 

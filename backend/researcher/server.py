@@ -22,7 +22,13 @@ logging.getLogger("LiteLLM").setLevel(logging.CRITICAL)
 
 # Import from our modules
 from context import get_agent_instructions, DEFAULT_RESEARCH_PROMPT
-from mcp_servers import create_playwright_mcp_server
+from mcp_servers import (
+    create_playwright_mcp_server,
+    create_fetch_mcp_server,
+    create_serper_mcp_server,
+    create_duckduckgo_mcp_server,
+    create_alphavantage_mcp_server,
+)
 from tools import ingest_financial_document
 
 # Load environment
@@ -66,15 +72,34 @@ async def run_research_agent(topic: str = None) -> str:
 
     model = LitellmModel(model=MODEL)
 
-    # Create and run the agent with MCP server
+    # Build list of MCP servers — skip any that return None (missing API keys)
+    mcp_constructors = [
+        ("playwright", lambda: create_playwright_mcp_server(timeout_seconds=300)),
+        ("fetch", lambda: create_fetch_mcp_server(timeout_seconds=300)),
+        ("serper", lambda: create_serper_mcp_server(timeout_seconds=300)),
+        ("duckduckgo", lambda: create_duckduckgo_mcp_server(timeout_seconds=300)),
+        ("alphavantage", lambda: create_alphavantage_mcp_server(timeout_seconds=300)),
+    ]
+
+    from contextlib import AsyncExitStack
     with trace("Researcher"):
-        async with create_playwright_mcp_server(timeout_seconds=300) as playwright_mcp:
+        async with AsyncExitStack() as stack:
+            mcp_servers = []
+            for name, constructor in mcp_constructors:
+                server = constructor()
+                if server is not None:
+                    try:
+                        ctx = await stack.enter_async_context(server)
+                        mcp_servers.append(ctx)
+                    except Exception as e:
+                        print(f"Warning: Could not start {name} MCP server: {e}")
+
             agent = Agent(
                 name="Alex Investment Researcher",
                 instructions=get_agent_instructions(),
                 model=model,
                 tools=[ingest_financial_document],
-                mcp_servers=[playwright_mcp],
+                mcp_servers=mcp_servers,
             )
 
             result = await Runner.run(agent, input=query, max_turns=15)

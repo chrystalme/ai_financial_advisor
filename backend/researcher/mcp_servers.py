@@ -1,6 +1,7 @@
 """
 MCP server configurations for the Alex Researcher
 """
+import os
 from agents.mcp import MCPServerStdio
 
 
@@ -45,3 +46,45 @@ def create_playwright_mcp_server(timeout_seconds=60):
     }
     
     return MCPServerStdio(params=params, client_session_timeout_seconds=timeout_seconds)
+
+
+def create_fetch_mcp_server(timeout_seconds=60):
+    return MCPServerStdio(
+        params={"command": "uvx", "args": ["mcp-server-fetch"]},
+        client_session_timeout_seconds=timeout_seconds,
+    )
+
+
+def create_serper_mcp_server(timeout_seconds=60):
+    api_key = os.getenv("SERPER_API_KEY", "")
+    if not api_key:
+        return None
+    return MCPServerStdio(
+        params={"command": "uvx", "args": ["serper-mcp-server"], "env": {"SERPER_API_KEY": api_key}},
+        client_session_timeout_seconds=timeout_seconds,
+    )
+
+
+def create_duckduckgo_mcp_server(timeout_seconds=60):
+    return MCPServerStdio(
+        params={
+            "command": "npx",
+            "args": ["duckduckgo-mcp-server"],
+            "env": {"DDG_SAFE_SEARCH": "STRICT", "DDG_MAX_RESULTS": "5", "DDG_REGION": "us-en"},
+        },
+        client_session_timeout_seconds=timeout_seconds,
+    )
+
+
+def create_alphavantage_mcp_server(timeout_seconds=60):
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+    if not api_key:
+        return None
+    return MCPServerStdio(
+        params={
+            "command": "uvx",
+            "args": ["--from", "marketdata-mcp-server", "marketdata-mcp"],
+            "env": {"ALPHA_VANTAGE_API_KEY": api_key},
+        },
+        client_session_timeout_seconds=timeout_seconds,
+    )
