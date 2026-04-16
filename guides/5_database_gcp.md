@@ -41,27 +41,47 @@ CLOUDSQL_INSTANCE_IP=...
 DB_SECRET_NAME=alex-db-credentials
 ```
 
-## 2. Load schema and seed data
+## 2. Connect and test
 
-The schema is shared with the AWS track (`backend/database/schema.sql`). Load via Cloud SQL Auth Proxy:
-
+Install the Cloud SQL Auth Proxy if you don't have it:
 ```bash
-# In one terminal:
-cloud-sql-proxy $CLOUDSQL_CONNECTION_NAME --port 5432
+brew install cloud-sql-proxy
+```
 
-# In another:
+Get your database password from Secret Manager:
+```bash
+gcloud secrets versions access latest --secret=alex-db-credentials | python3 -c "import sys,json; print(json.load(sys.stdin)['password'])"
+```
+
+In one terminal, start the proxy (keep it running):
+```bash
+cloud-sql-proxy <CLOUDSQL_CONNECTION_NAME from terraform output> --port 5432
+```
+
+In another terminal, export credentials and test:
+```bash
 cd backend/database
-uv run migrate.py                        # applies schema.sql
-uv run load_seed_data.py                 # loads the 22 seed ETFs
+export DB_PASSWORD="<password from above>"
+uv run test_db_gcp.py                    # verify connection works
 ```
 
-Download the proxy if you don't have it:
+## 3. Load schema and seed data
+
 ```bash
-curl -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.13.0/cloud-sql-proxy.darwin.arm64
-chmod +x cloud-sql-proxy
+cd backend/database
+uv run run_migrations_gcp.py             # creates schema (17 statements)
+uv run seed_data_gcp.py                  # loads the 22 seed ETFs
+uv run verify_database_gcp.py            # full verification report
 ```
 
-## 3. How agents connect
+| Script | Purpose |
+|---|---|
+| `test_db_gcp.py` | Quick connection test, lists tables |
+| `run_migrations_gcp.py` | Creates tables, indexes, triggers |
+| `seed_data_gcp.py` | Loads 22 ETF instruments with allocations |
+| `verify_database_gcp.py` | Full report: counts, allocations, indexes, triggers |
+
+## 4. How agents connect
 
 Lambda used the Aurora Data API (HTTP). Cloud Run / Cloud Functions connect differently:
 
@@ -73,7 +93,7 @@ The shared `backend/database` library should use an env-driven connection string
 DATABASE_URL=postgresql+psycopg://alex_app:<pw>@/alex?host=/cloudsql/<connection_name>
 ```
 
-## 4. Cost control
+## 5. Cost control
 
 Stop the instance between sessions:
 ```bash

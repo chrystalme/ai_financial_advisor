@@ -2,6 +2,7 @@
 Database models and query builders
 """
 
+import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime, date
 from decimal import Decimal
@@ -302,7 +303,12 @@ class Database:
     def __init__(self, cluster_arn: str = None, secret_arn: str = None,
                  database: str = None, region: str = None):
         """Initialize database with all model classes"""
-        self.client = DataAPIClient(cluster_arn, secret_arn, database, region)
+        provider = os.environ.get("CLOUD_PROVIDER", "aws").lower()
+        if provider == "gcp":
+            from .client_gcp import CloudSQLClient
+            self.client = CloudSQLClient()
+        else:
+            self.client = DataAPIClient(cluster_arn, secret_arn, database, region)
         
         # Initialize all models
         self.users = Users(self.client)
