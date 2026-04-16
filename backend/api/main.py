@@ -15,8 +15,6 @@ from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
-import boto3
-from mangum import Mangum
 from dotenv import load_dotenv
 from fastapi_clerk_auth import ClerkConfig, ClerkHTTPBearer, HTTPAuthorizationCredentials
 
@@ -94,9 +92,31 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Initialize services
 db = Database()
 
-# SQS client for job queueing
-sqs_client = boto3.client('sqs', region_name=os.getenv('DEFAULT_AWS_REGION', 'us-east-1'))
-SQS_QUEUE_URL = os.getenv('SQS_QUEUE_URL', '')
+# Queue client — SQS on AWS, Pub/Sub on GCP
+CLOUD_PROVIDER = os.getenv("CLOUD_PROVIDER", "aws").lower()
+
+def _publish_job(message: dict):
+    """Publish a job message to the queue (SQS or Pub/Sub)."""
+    if CLOUD_PROVIDER == "gcp":
+        from google.cloud import pubsub_v1
+        topic = os.getenv("PUBSUB_TOPIC", "")
+        project = os.getenv("VERTEX_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT", "")
+        if topic and project:
+            publisher = pubsub_v1.PublisherClient()
+            topic_path = publisher.topic_path(project, topic)
+            publisher.publish(topic_path, json.dumps(message).encode("utf-8"))
+            logger.info(f"Published job to Pub/Sub topic {topic}")
+        else:
+            logger.warning("PUBSUB_TOPIC or project not configured, job not queued")
+    else:
+        import boto3
+        sqs_client = boto3.client("sqs", region_name=os.getenv("DEFAULT_AWS_REGION", "us-east-1"))
+        sqs_url = os.getenv("SQS_QUEUE_URL", "")
+        if sqs_url:
+            sqs_client.send_message(QueueUrl=sqs_url, MessageBody=json.dumps(message))
+            logger.info(f"Sent job to SQS")
+        else:
+            logger.warning("SQS_QUEUE_URL not configured, job not queued")
 
 # Clerk authentication setup (exactly like saas reference)
 clerk_config = ClerkConfig(jwks_url=os.getenv("CLERK_JWKS_URL"))
@@ -510,22 +530,14 @@ async def trigger_analysis(request: AnalyzeRequest, clerk_user_id: str = Depends
         # Get the created job
         job = db.jobs.find_by_id(job_id)
 
-        # Send to SQS
-        if SQS_QUEUE_URL:
-            message = {
-                'job_id': str(job_id),
-                'clerk_user_id': clerk_user_id,
-                'analysis_type': request.analysis_type,
-                'options': request.options
-            }
-
-            sqs_client.send_message(
-                QueueUrl=SQS_QUEUE_URL,
-                MessageBody=json.dumps(message)
-            )
-            logger.info(f"Sent analysis job to SQS: {job_id}")
-        else:
-            logger.warning("SQS_QUEUE_URL not configured, job created but not queued")
+        # Queue the job
+        message = {
+            'job_id': str(job_id),
+            'clerk_user_id': clerk_user_id,
+            'analysis_type': request.analysis_type,
+            'options': request.options
+        }
+        _publish_job(message)
 
         return AnalyzeResponse(
             job_id=str(job_id),
@@ -763,9 +775,12 @@ async def populate_test_data(clerk_user_id: str = Depends(get_current_user_id)):
         logger.error(f"Error populating test data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Lambda handler
-handler = Mangum(app)
+# Lambda handler (AWS)
+if CLOUD_PROVIDER == "aws":
+    from mangum import Mangum
+    handler = Mangum(app)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", "8080"))
+    uvicorn.run(app, host="0.0.0.0", port=port)

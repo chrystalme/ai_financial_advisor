@@ -1,6 +1,7 @@
 terraform {
   required_providers {
     google = { source = "hashicorp/google", version = "~> 5.40" }
+    null   = { source = "hashicorp/null", version = "~> 3.2" }
   }
    backend "gcs" {
     bucket = "alex-ai-prod-alex-tfstate"
@@ -16,6 +17,41 @@ provider "google" {
 locals {
   prefix = "alex"
   image  = var.api_container_image != "" ? var.api_container_image : "${var.region}-docker.pkg.dev/${var.project_id}/alex/api:latest"
+}
+
+# --- Build and push API container ------------------------------------------
+resource "null_resource" "api_build_push" {
+  triggers = {
+    api_hash = sha1(join("", [
+      for f in fileset("${path.module}/../../backend/api", "**") :
+      filesha1("${path.module}/../../backend/api/${f}")
+    ]))
+    db_hash = sha1(join("", [
+      for f in fileset("${path.module}/../../backend/database/src", "**") :
+      filesha1("${path.module}/../../backend/database/src/${f}")
+    ]))
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Stage: combine api + database src, strip local path dep
+      rm -rf ${path.module}/.stage/api
+      mkdir -p ${path.module}/.stage/api
+      cp -r ${path.module}/../../backend/api/. ${path.module}/.stage/api/
+      cp -r ${path.module}/../../backend/database/src ${path.module}/.stage/api/src
+      cd ${path.module}/.stage/api
+      sed -i '' '/alex-database/d' pyproject.toml
+      sed -i '' '/tool.uv.sources/d' pyproject.toml
+      sed -i '' '/workspace/d' pyproject.toml
+      # Add GCP deps
+      sed -i '' 's/"fastapi>/"cloud-sql-python-connector[pg8000]>=1.0.0",\n    "google-cloud-pubsub>=2.0.0",\n    "google-cloud-secret-manager>=2.20.0",\n    "psycopg[binary]>=3.1.0",\n    "fastapi>/' pyproject.toml
+      rm -f uv.lock
+      # Build and push
+      gcloud auth configure-docker ${var.region}-docker.pkg.dev --quiet
+      docker build --platform linux/amd64 -t ${local.image} .
+      docker push ${local.image}
+    EOT
+  }
 }
 
 # --- API service account --------------------------------------------------
@@ -55,12 +91,19 @@ resource "google_cloud_run_v2_service" "api" {
     }
     containers {
       image = local.image
+      ports {
+        container_port = 8080
+      }
       resources {
         limits = { cpu = "1", memory = "1Gi" }
       }
       env {
         name  = "CLOUD_PROVIDER"
         value = "gcp"
+      }
+      env {
+        name  = "VERTEX_PROJECT"
+        value = var.project_id
       }
       env {
         name  = "CLERK_JWKS_URL"
@@ -94,6 +137,8 @@ resource "google_cloud_run_v2_service" "api" {
   lifecycle {
     ignore_changes = [template[0].containers[0].image]
   }
+
+  depends_on = [null_resource.api_build_push]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "api_public" {
