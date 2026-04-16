@@ -125,6 +125,10 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "PUBSUB_TOPIC"
         value = var.jobs_topic
       }
+      env {
+        name  = "CORS_ORIGINS"
+        value = var.cors_origins
+      }
     }
     volumes {
       name = "cloudsql"

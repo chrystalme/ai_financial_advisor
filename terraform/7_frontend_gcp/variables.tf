@@ -51,3 +51,9 @@ variable "jobs_topic" {
   description = "Pub/Sub topic the API publishes to (from guide 6)"
   type        = string
 }
+
+variable "cors_origins" {
+  description = "Comma-separated allowed CORS origins"
+  type        = string
+  default     = "http://localhost:3000"
+}
