@@ -151,10 +151,8 @@ resource "google_cloud_scheduler_job" "research" {
   time_zone = "UTC"
 
   http_target {
-    http_method = "POST"
-    uri         = "${google_cloud_run_v2_service.researcher.uri}/research"
-    headers     = { "Content-Type" = "application/json" }
-    body        = base64encode(jsonencode({ topic = "market roundup" }))
+    http_method = "GET"
+    uri         = "${google_cloud_run_v2_service.researcher.uri}/research/auto"
     oidc_token {
       service_account_email = google_service_account.scheduler[0].email
     }
