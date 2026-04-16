@@ -27,7 +27,6 @@ from mcp_servers import (
     create_fetch_mcp_server,
     create_serper_mcp_server,
     create_duckduckgo_mcp_server,
-    create_alphavantage_mcp_server,
 )
 from tools import ingest_financial_document
 
@@ -78,7 +77,6 @@ async def run_research_agent(topic: str = None) -> str:
         ("fetch", lambda: create_fetch_mcp_server(timeout_seconds=300)),
         ("serper", lambda: create_serper_mcp_server(timeout_seconds=300)),
         ("duckduckgo", lambda: create_duckduckgo_mcp_server(timeout_seconds=300)),
-        ("alphavantage", lambda: create_alphavantage_mcp_server(timeout_seconds=300)),
     ]
 
     from contextlib import AsyncExitStack

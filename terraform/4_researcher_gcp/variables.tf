@@ -47,12 +47,6 @@ variable "serper_api_key" {
   sensitive = true
 }
 
-variable "alpha_vantage_api_key" {
-  type      = string
-  default   = ""
-  sensitive = true
-}
-
 variable "container_image" {
   description = "Fully-qualified Artifact Registry image for the researcher; leave empty to use a placeholder until first push"
   type        = string
