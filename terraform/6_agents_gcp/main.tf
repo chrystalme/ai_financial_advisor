@@ -153,6 +153,7 @@ resource "google_cloudfunctions2_function" "agent" {
       CLOUDSQL_CONNECTION_NAME = var.cloudsql_connection_name
       DB_SECRET_NAME           = var.db_secret_name
       VECTOR_INDEX_ENDPOINT_ID = var.vector_index_endpoint_id
+      ALEX_API_ENDPOINT        = var.alex_api_endpoint
       DEPLOYED_INDEX_ID        = var.deployed_index_id
       POLYGON_API_KEY          = var.polygon_api_key
       POLYGON_PLAN             = var.polygon_plan
@@ -162,6 +163,24 @@ resource "google_cloudfunctions2_function" "agent" {
       LANGFUSE_HOST            = var.langfuse_host
       OPENAI_API_KEY           = var.openai_api_key
     }
+  }
+}
+
+# --- Patch planner with other agents' URLs --------------------------------
+resource "null_resource" "planner_agent_urls" {
+  triggers = {
+    tagger_url     = google_cloudfunctions2_function.agent["tagger"].service_config[0].uri
+    reporter_url   = google_cloudfunctions2_function.agent["reporter"].service_config[0].uri
+    charter_url    = google_cloudfunctions2_function.agent["charter"].service_config[0].uri
+    retirement_url = google_cloudfunctions2_function.agent["retirement"].service_config[0].uri
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      gcloud run services update ${google_cloudfunctions2_function.agent["planner"].name} \
+        --region=${var.region} \
+        --update-env-vars="^||^TAGGER_FUNCTION=${google_cloudfunctions2_function.agent["tagger"].service_config[0].uri}||REPORTER_FUNCTION=${google_cloudfunctions2_function.agent["reporter"].service_config[0].uri}||CHARTER_FUNCTION=${google_cloudfunctions2_function.agent["charter"].service_config[0].uri}||RETIREMENT_FUNCTION=${google_cloudfunctions2_function.agent["retirement"].service_config[0].uri}"
+    EOT
   }
 }
 

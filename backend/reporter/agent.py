@@ -116,7 +116,7 @@ async def get_market_insights(
     wrapper: RunContextWrapper[ReporterContext], symbols: List[str]
 ) -> str:
     """
-    Retrieve market insights from S3 Vectors knowledge base.
+    Retrieve market insights from the vector knowledge base.
 
     Args:
         wrapper: Context wrapper with job_id and database
@@ -125,61 +125,79 @@ async def get_market_insights(
     Returns:
         Relevant market context and insights
     """
+    provider = os.environ.get("CLOUD_PROVIDER", "aws").lower()
+    query = f"market analysis {' '.join(symbols[:5])}" if symbols else "market outlook"
+
     try:
-        import boto3
-
-        # Get account ID
-        sts = boto3.client("sts")
-        account_id = sts.get_caller_identity()["Account"]
-        bucket = f"alex-vectors-{account_id}"
-
-        # Get embeddings
-        sagemaker_region = os.getenv("DEFAULT_AWS_REGION", "us-east-1")
-        sagemaker = boto3.client("sagemaker-runtime", region_name=sagemaker_region)
-        endpoint_name = os.getenv("SAGEMAKER_ENDPOINT", "alex-embedding-endpoint")
-        query = f"market analysis {' '.join(symbols[:5])}" if symbols else "market outlook"
-
-        response = sagemaker.invoke_endpoint(
-            EndpointName=endpoint_name,
-            ContentType="application/json",
-            Body=json.dumps({"inputs": query}),
-        )
-
-        result = json.loads(response["Body"].read().decode())
-        # Extract embedding (handle nested arrays)
-        if isinstance(result, list) and result:
-            embedding = result[0][0] if isinstance(result[0], list) else result[0]
+        if provider == "gcp":
+            return await _search_gcp(query)
         else:
-            embedding = result
-
-        # Search vectors
-        s3v = boto3.client("s3vectors", region_name=sagemaker_region)
-        response = s3v.query_vectors(
-            vectorBucketName=bucket,
-            indexName="financial-research",
-            queryVector={"float32": embedding},
-            topK=3,
-            returnMetadata=True,
-        )
-
-        # Format insights
-        insights = []
-        for vector in response.get("vectors", []):
-            metadata = vector.get("metadata", {})
-            text = metadata.get("text", "")[:200]
-            if text:
-                company = metadata.get("company_name", "")
-                prefix = f"{company}: " if company else "- "
-                insights.append(f"{prefix}{text}...")
-
-        if insights:
-            return "Market Insights:\n" + "\n".join(insights)
-        else:
-            return "Market insights unavailable - proceeding with standard analysis."
-
+            return _search_aws(query)
     except Exception as e:
         logger.warning(f"Reporter: Could not retrieve market insights: {e}")
         return "Market insights unavailable - proceeding with standard analysis."
+
+
+async def _search_gcp(query: str) -> str:
+    import httpx
+    ingest_url = os.getenv("ALEX_API_ENDPOINT", "")
+    if not ingest_url:
+        return "Market insights unavailable - ingest endpoint not configured."
+    url = ingest_url.rstrip("/")
+    if not url.endswith("/search"):
+        url = f"{url}/search"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, json={"query": query, "top_k": 3}, timeout=30.0)
+        resp.raise_for_status()
+        data = resp.json()
+    hits = data.get("hits", [])
+    if hits:
+        return "Market Insights:\n" + "\n".join(
+            f"- Document {h['id']} (relevance: {h.get('distance', 'N/A')})" for h in hits
+        )
+    return "No market insights found in knowledge base."
+
+
+def _search_aws(query: str) -> str:
+    import boto3
+    sts = boto3.client("sts")
+    account_id = sts.get_caller_identity()["Account"]
+    bucket = f"alex-vectors-{account_id}"
+    sagemaker_region = os.getenv("DEFAULT_AWS_REGION", "us-east-1")
+    sagemaker = boto3.client("sagemaker-runtime", region_name=sagemaker_region)
+    endpoint_name = os.getenv("SAGEMAKER_ENDPOINT", "alex-embedding-endpoint")
+
+    response = sagemaker.invoke_endpoint(
+        EndpointName=endpoint_name,
+        ContentType="application/json",
+        Body=json.dumps({"inputs": query}),
+    )
+    result = json.loads(response["Body"].read().decode())
+    if isinstance(result, list) and result:
+        embedding = result[0][0] if isinstance(result[0], list) else result[0]
+    else:
+        embedding = result
+
+    s3v = boto3.client("s3vectors", region_name=sagemaker_region)
+    response = s3v.query_vectors(
+        vectorBucketName=bucket,
+        indexName="financial-research",
+        queryVector={"float32": embedding},
+        topK=3,
+        returnMetadata=True,
+    )
+    insights = []
+    for vector in response.get("vectors", []):
+        metadata = vector.get("metadata", {})
+        text = metadata.get("text", "")[:200]
+        if text:
+            company = metadata.get("company_name", "")
+            prefix = f"{company}: " if company else "- "
+            insights.append(f"{prefix}{text}...")
+
+    if insights:
+        return "Market Insights:\n" + "\n".join(insights)
+    return "Market insights unavailable - proceeding with standard analysis."
 
 
 def create_agent(job_id: str, portfolio_data: Dict[str, Any], user_data: Dict[str, Any], db=None):

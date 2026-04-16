@@ -67,6 +67,12 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "alex_api_endpoint" {
+  description = "Ingest function URL (from guide 3)"
+  type        = string
+  default     = ""
+}
+
 variable "agents" {
   description = "Agent names to deploy"
   type        = list(string)

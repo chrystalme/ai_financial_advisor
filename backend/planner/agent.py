@@ -33,43 +33,68 @@ class PlannerContext:
     job_id: str
 
 
+CLOUD_PROVIDER = os.getenv("CLOUD_PROVIDER", "aws").lower()
+
+
 async def invoke_lambda_agent(
     agent_name: str, function_name: str, payload: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Invoke a Lambda function for an agent."""
+    """Invoke an agent — Lambda on AWS, HTTP on GCP."""
 
-    # For local testing with mocked agents
     if MOCK_LAMBDAS:
         logger.info(f"[MOCK] Would invoke {agent_name} with payload: {json.dumps(payload)[:200]}")
         return {"success": True, "message": f"[Mock] {agent_name} completed", "mock": True}
 
     try:
-        logger.info(f"Invoking {agent_name} Lambda: {function_name}")
-
-        response = _get_lambda_client().invoke(
-            FunctionName=function_name,
-            InvocationType="RequestResponse",
-            Payload=json.dumps(payload),
-        )
-
-        result = json.loads(response["Payload"].read())
-
-        # Unwrap Lambda response if it has the standard format
-        if isinstance(result, dict) and "statusCode" in result and "body" in result:
-            if isinstance(result["body"], str):
-                try:
-                    result = json.loads(result["body"])
-                except json.JSONDecodeError:
-                    result = {"message": result["body"]}
-            else:
-                result = result["body"]
-
-        logger.info(f"{agent_name} completed successfully")
-        return result
-
+        if CLOUD_PROVIDER == "gcp":
+            return await _invoke_cloud_function(agent_name, function_name, payload)
+        else:
+            return _invoke_lambda(agent_name, function_name, payload)
     except Exception as e:
         logger.error(f"Error invoking {agent_name}: {e}")
         return {"error": str(e)}
+
+
+def _invoke_lambda(agent_name: str, function_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info(f"Invoking {agent_name} Lambda: {function_name}")
+    response = _get_lambda_client().invoke(
+        FunctionName=function_name,
+        InvocationType="RequestResponse",
+        Payload=json.dumps(payload),
+    )
+    result = json.loads(response["Payload"].read())
+    if isinstance(result, dict) and "statusCode" in result and "body" in result:
+        if isinstance(result["body"], str):
+            try:
+                result = json.loads(result["body"])
+            except json.JSONDecodeError:
+                result = {"message": result["body"]}
+        else:
+            result = result["body"]
+    logger.info(f"{agent_name} completed successfully")
+    return result
+
+
+async def _invoke_cloud_function(agent_name: str, function_url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    import httpx
+    import google.auth.transport.requests
+    import google.oauth2.id_token
+
+    logger.info(f"Invoking {agent_name} Cloud Function: {function_url}")
+    token = google.oauth2.id_token.fetch_id_token(
+        google.auth.transport.requests.Request(), function_url
+    )
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            function_url,
+            json=payload,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=540.0,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+    logger.info(f"{agent_name} completed successfully")
+    return result
 
 
 def handle_missing_instruments(job_id: str, db) -> None:
@@ -112,24 +137,14 @@ def handle_missing_instruments(job_id: str, db) -> None:
         )
 
         try:
-            response = _get_lambda_client().invoke(
-                FunctionName=TAGGER_FUNCTION,
-                InvocationType="RequestResponse",
-                Payload=json.dumps({"instruments": missing}),
+            import asyncio
+            result = asyncio.get_event_loop().run_until_complete(
+                invoke_lambda_agent("Tagger", TAGGER_FUNCTION, {"instruments": missing})
             )
-
-            result = json.loads(response["Payload"].read())
-
-            if isinstance(result, dict) and "statusCode" in result:
-                if result["statusCode"] == 200:
-                    logger.info(
-                        f"Planner: InstrumentTagger completed - Tagged {len(missing)} instruments"
-                    )
-                else:
-                    logger.error(
-                        f"Planner: InstrumentTagger failed with status {result['statusCode']}"
-                    )
-
+            if "error" in result:
+                logger.error(f"Planner: InstrumentTagger failed: {result['error']}")
+            else:
+                logger.info(f"Planner: InstrumentTagger completed - Tagged {len(missing)} instruments")
         except Exception as e:
             logger.error(f"Planner: Error tagging instruments: {e}")
     else:
