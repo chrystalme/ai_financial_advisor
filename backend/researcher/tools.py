@@ -16,8 +16,11 @@ ALEX_API_KEY = os.getenv("ALEX_API_KEY")
 def _ingest(document: Dict[str, Any]) -> Dict[str, Any]:
     """Internal function to make the actual API call."""
     with httpx.Client() as client:
+        url = ALEX_API_ENDPOINT.rstrip("/")
+        if not url.endswith("/ingest"):
+            url = f"{url}/ingest"
         response = client.post(
-            ALEX_API_ENDPOINT,
+            url,
             json=document,
             headers={"x-api-key": ALEX_API_KEY},
             timeout=30.0
