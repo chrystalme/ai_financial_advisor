@@ -34,6 +34,13 @@ variable "schedule_cron" {
   default = "0 */6 * * *"
 }
 
+variable "openai_api_key" {
+  description = "OpenAI API key for Agents SDK trace export"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "container_image" {
   description = "Fully-qualified Artifact Registry image for the researcher; leave empty to use a placeholder until first push"
   type        = string

@@ -7,10 +7,14 @@ import logging
 from datetime import datetime, UTC
 from typing import Optional
 
+import asyncio
+import json
+
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from agents import Agent, Runner, trace
+from agents import Agent, Runner, trace, set_tracing_export_api_key
 from agents.extensions.models.litellm_model import LitellmModel
 
 # Suppress LiteLLM warnings about optional dependencies
@@ -23,6 +27,9 @@ from tools import ingest_financial_document
 
 # Load environment
 load_dotenv(override=True)
+
+if api_key := os.environ.get("OPENAI_API_KEY"): 
+    set_tracing_export_api_key(api_key)
 
 app = FastAPI(title="Alex Researcher Service")
 
@@ -41,25 +48,27 @@ async def run_research_agent(topic: str = None) -> str:
     else:
         query = DEFAULT_RESEARCH_PROMPT
 
-    # Please override these variables with the region you are using
-    # Other choices: us-west-2 (for OpenAI OSS models) and eu-central-1
-    REGION = "us-east-1"
-    os.environ["AWS_REGION_NAME"] = REGION  # LiteLLM's preferred variable
-    os.environ["AWS_REGION"] = REGION  # Boto3 standard
-    os.environ["AWS_DEFAULT_REGION"] = REGION  # Fallback
+    provider = os.environ.get("CLOUD_PROVIDER", "aws").lower()
 
-    # Please override this variable with the model you are using
-    # Common choices: bedrock/eu.amazon.nova-pro-v1:0 for EU and bedrock/us.amazon.nova-pro-v1:0 for US
-    # or bedrock/amazon.nova-pro-v1:0 if you are not using inference profiles
-    # bedrock/openai.gpt-oss-120b-1:0 for OpenAI OSS models
-    # bedrock/converse/us.anthropic.claude-sonnet-4-20250514-v1:0 for Claude Sonnet 4
-    # NOTE that nova-pro is needed to support tools and MCP servers; nova-lite is not enough - thank you Yuelin L.!
-    MODEL = "bedrock/us.amazon.nova-pro-v1:0"
+    if provider == "gcp":
+        # Vertex AI via LiteLLM — reads ADC from the Cloud Run service account.
+        MODEL = os.environ.get("MODEL_ID", "vertex_ai/gemini-2.5-pro")
+    elif provider == "azure":
+        # Azure OpenAI via LiteLLM — needs AZURE_API_BASE/KEY/VERSION in env.
+        MODEL = os.environ.get("MODEL_ID", "azure/gpt-4o")
+    else:
+        # AWS Bedrock (default). Override region if your Bedrock access lives elsewhere.
+        REGION = os.environ.get("AWS_REGION_NAME", "us-east-1")
+        os.environ["AWS_REGION_NAME"] = REGION
+        os.environ["AWS_REGION"] = REGION
+        os.environ["AWS_DEFAULT_REGION"] = REGION
+        MODEL = os.environ.get("MODEL_ID", "bedrock/us.amazon.nova-pro-v1:0")
+
     model = LitellmModel(model=MODEL)
 
     # Create and run the agent with MCP server
     with trace("Researcher"):
-        async with create_playwright_mcp_server(timeout_seconds=60) as playwright_mcp:
+        async with create_playwright_mcp_server(timeout_seconds=300) as playwright_mcp:
             agent = Agent(
                 name="Alex Investment Researcher",
                 instructions=get_agent_instructions(),
@@ -84,7 +93,7 @@ async def root():
 
 
 @app.post("/research")
-async def research(request: ResearchRequest) -> str:
+async def research(request: ResearchRequest):
     """
     Generate investment research and advice.
 
@@ -95,15 +104,18 @@ async def research(request: ResearchRequest) -> str:
 
     If no topic is provided, the agent will pick a trending topic.
     """
-    try:
-        response = await run_research_agent(request.topic)
-        return response
-    except Exception as e:
-        print(f"Error in research endpoint: {e}")
-        import traceback
+    async def stream():
+        task = asyncio.create_task(run_research_agent(request.topic))
+        while not task.done():
+            yield " "
+            await asyncio.sleep(10)
+        try:
+            result = task.result()
+            yield json.dumps({"result": result})
+        except Exception as e:
+            yield json.dumps({"error": str(e)})
 
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(stream(), media_type="application/json")
 
 
 @app.get("/research/auto")

@@ -26,7 +26,7 @@ def create_playwright_mcp_server(timeout_seconds=60):
     # Add executable path in Docker environment
     import os
     import glob
-    if os.path.exists("/.dockerenv") or os.environ.get("AWS_EXECUTION_ENV"):
+    if os.path.exists("/.dockerenv") or os.environ.get("AWS_EXECUTION_ENV") or os.environ.get("K_SERVICE"):
         # Find the installed Chrome executable dynamically
         chrome_paths = glob.glob("/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome")
         if chrome_paths:

@@ -79,7 +79,7 @@ resource "google_cloud_run_v2_service" "researcher" {
         container_port = 8000
       }
       resources {
-        limits = { cpu = "2", memory = "2Gi" }
+        limits = { cpu = "2", memory = "4Gi" }
       }
       env {
         name  = "CLOUD_PROVIDER"
@@ -105,11 +105,15 @@ resource "google_cloud_run_v2_service" "researcher" {
         name  = "ALEX_API_KEY"
         value = var.alex_api_key
       }
+      env {
+        name  = "OPENAI_API_KEY"
+        value = var.openai_api_key
+      }
     }
   }
 
   lifecycle {
-    ignore_changes = [template[0].containers[0].image]
+    ignore_changes = []
   }
 
   depends_on = [null_resource.build_push]
