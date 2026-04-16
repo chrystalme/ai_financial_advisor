@@ -57,24 +57,29 @@ class _Pg8000CursorWrapper:
 
     def execute(self, sql, params=None):
         if params and isinstance(params, dict):
-            for k, v in params.items():
+            keys = list(params.keys())
+            for k in keys:
                 sql = sql.replace(f"%({k})s", "%s")
-            params = list(params.values())
+            params = [params[k] for k in keys]
         self._cur.execute(sql, params)
-        self.description = self._cur.description
+        raw = self._cur.description
+        if raw and isinstance(raw[0], tuple):
+            self.description = [type('D', (), {'name': d[0]})() for d in raw]
+        else:
+            self.description = raw
         self.rowcount = self._cur.rowcount
 
     def fetchall(self):
         rows = self._cur.fetchall()
         if self.description:
-            cols = [d[0] for d in self.description]
+            cols = [d.name for d in self.description]
             return [{c: v for c, v in zip(cols, row)} for row in rows]
         return rows
 
     def fetchone(self):
         row = self._cur.fetchone()
         if row and self.description:
-            cols = [d[0] for d in self.description]
+            cols = [d.name for d in self.description]
             return {c: v for c, v in zip(cols, row)}
         return row
 
