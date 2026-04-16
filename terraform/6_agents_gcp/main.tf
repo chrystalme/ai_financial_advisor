@@ -63,7 +63,7 @@ resource "null_resource" "agent_stage" {
       cp -r ${path.module}/../../backend/database/src ${path.module}/.stage/${each.key}/src
       cd ${path.module}/.stage/${each.key}
       sed -i '' '/alex-database/d' pyproject.toml
-      sed -i '' 's/"functions-framework>=3.0.0",/"functions-framework>=3.0.0",\n    "google-cloud-secret-manager>=2.20.0",\n    "psycopg>=3.1.0",/' pyproject.toml
+      sed -i '' 's/"functions-framework>=3.0.0",/"cloud-sql-python-connector[pg8000]>=1.0.0",\n    "functions-framework>=3.0.0",\n    "google-cloud-secret-manager>=2.20.0",\n    "psycopg>=3.1.0",/' pyproject.toml
       rm -f uv.lock
     EOT
   }

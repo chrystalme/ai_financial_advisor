@@ -20,6 +20,65 @@ from psycopg.rows import dict_row
 logger = logging.getLogger(__name__)
 
 
+class _Pg8000Wrapper:
+    """Wraps a pg8000 connection to provide the context-manager and cursor
+    interface that the rest of this module expects (similar to psycopg)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.autocommit = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        if not any(exc):
+            self._conn.commit()
+        self._conn.close()
+
+    def cursor(self):
+        return _Pg8000CursorWrapper(self._conn.cursor())
+
+    def close(self):
+        self._conn.close()
+
+
+class _Pg8000CursorWrapper:
+    def __init__(self, cur):
+        self._cur = cur
+        self.description = None
+        self.rowcount = -1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+    def execute(self, sql, params=None):
+        if params and isinstance(params, dict):
+            for k, v in params.items():
+                sql = sql.replace(f"%({k})s", "%s")
+            params = list(params.values())
+        self._cur.execute(sql, params)
+        self.description = self._cur.description
+        self.rowcount = self._cur.rowcount
+
+    def fetchall(self):
+        rows = self._cur.fetchall()
+        if self.description:
+            cols = [d[0] for d in self.description]
+            return [{c: v for c, v in zip(cols, row)} for row in rows]
+        return rows
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        if row and self.description:
+            cols = [d[0] for d in self.description]
+            return {c: v for c, v in zip(cols, row)}
+        return row
+
+
 class CloudSQLClient:
     """Drop-in replacement for DataAPIClient that uses psycopg + Cloud SQL."""
 
@@ -35,10 +94,19 @@ class CloudSQLClient:
             if secret_name:
                 db_password = self._load_secret(secret_name)
 
-        socket_path = f"/cloudsql/{connection_name}"
-        if connection_name and os.path.exists(os.path.dirname(socket_path)):
-            self._conninfo = f"host={socket_path} dbname={db_name} user={db_user} password={db_password}"
+        self._db_name = db_name
+        self._db_user = db_user
+        self._db_password = db_password
+        self._connection_name = connection_name
+
+        socket_dir = f"/cloudsql/{connection_name}"
+        if connection_name and os.path.exists("/cloudsql"):
+            self._mode = "socket"
+            self._conninfo = f"host={socket_dir} dbname={db_name} user={db_user} password={db_password}"
+        elif connection_name and not os.environ.get("DB_HOST"):
+            self._mode = "connector"
         else:
+            self._mode = "tcp"
             host = os.environ.get("DB_HOST", "127.0.0.1")
             port = os.environ.get("DB_PORT", "5432")
             self._conninfo = f"host={host} port={port} dbname={db_name} user={db_user} password={db_password}"
@@ -56,6 +124,17 @@ class CloudSQLClient:
         return data.get("password", "")
 
     def _conn(self):
+        if self._mode == "connector":
+            from google.cloud.sql.connector import Connector
+            connector = Connector()
+            conn = connector.connect(
+                self._connection_name,
+                "pg8000",
+                user=self._db_user,
+                password=self._db_password,
+                db=self._db_name,
+            )
+            return _Pg8000Wrapper(conn)
         return psycopg.connect(self._conninfo, row_factory=dict_row)
 
     # -- public interface (mirrors DataAPIClient) ----------------------------
