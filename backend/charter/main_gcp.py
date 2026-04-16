@@ -15,6 +15,14 @@ import logging
 
 import functions_framework
 
+import os
+try:
+    from agents import set_tracing_export_api_key
+    if _key := os.environ.get("OPENAI_API_KEY"):
+        set_tracing_export_api_key(_key)
+except Exception:
+    pass
+
 from src import Database
 from lambda_handler import run_charter_agent
 from observability import observe
