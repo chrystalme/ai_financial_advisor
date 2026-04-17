@@ -70,16 +70,19 @@ async def run_reporter_agent(
         response = result.final_output
 
         if observability:
-            with observability.start_as_current_span(name="judge") as span:
-                evaluation = await evaluate(REPORTER_INSTRUCTIONS, task, response)
-                score = evaluation.score / 100
-                comment = evaluation.feedback
-                span.score(name="Judge", value=score, data_type="NUMERIC", comment=comment)
-                observation = f"Score: {score} - Feedback: {comment}"
-                observability.create_event(name="Judge Event", status_message=observation)
-                if score < GUARD_AGAINST_SCORE:
-                    logger.error(f"Reporter score is too low: {score}")
-                    response = "I'm sorry, I'm not able to generate a report for you. Please try again later."
+            try:
+                with observability.start_as_current_span(name="judge") as span:
+                    evaluation = await evaluate(REPORTER_INSTRUCTIONS, task, response)
+                    score = evaluation.score / 100
+                    comment = evaluation.feedback
+                    span.score(name="Judge", value=score, data_type="NUMERIC", comment=comment)
+                    observation = f"Score: {score} - Feedback: {comment}"
+                    observability.create_event(name="Judge Event", status_message=observation)
+                    if score < GUARD_AGAINST_SCORE:
+                        logger.error(f"Reporter score is too low: {score}")
+                        response = "I'm sorry, I'm not able to generate a report for you. Please try again later."
+            except Exception as judge_err:
+                logger.warning(f"Judge/observability step failed, continuing without score: {judge_err}")
 
         # Save the report to database
         report_payload = {
