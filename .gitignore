@@ -233,3 +233,5 @@ backend/**/*_lambda.zip
 !frontend/lib
 # Terraform build artifacts
 terraform/**/.build/
+
+.github/
