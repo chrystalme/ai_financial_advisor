@@ -40,12 +40,12 @@ resource "null_resource" "api_build_push" {
       cp -r ${path.module}/../../backend/api/. ${path.module}/.stage/api/
       cp -r ${path.module}/../../backend/database/src ${path.module}/.stage/api/src
       cd ${path.module}/.stage/api
-      sed -i '' '/alex-database/d' pyproject.toml
-      sed -i '' '/tool.uv.sources/d' pyproject.toml
-      sed -i '' '/workspace/d' pyproject.toml
+      sed -i.bak '/alex-database/d' pyproject.toml
+      sed -i.bak '/tool.uv.sources/d' pyproject.toml
+      sed -i.bak '/workspace/d' pyproject.toml
       # Add GCP deps
-      sed -i '' 's/"fastapi>/"cloud-sql-python-connector[pg8000]>=1.0.0",\n    "google-cloud-pubsub>=2.0.0",\n    "google-cloud-secret-manager>=2.20.0",\n    "psycopg[binary]>=3.1.0",\n    "fastapi>/' pyproject.toml
-      rm -f uv.lock
+      sed -i.bak 's/"fastapi>/"cloud-sql-python-connector[pg8000]>=1.0.0",\n    "google-cloud-pubsub>=2.0.0",\n    "google-cloud-secret-manager>=2.20.0",\n    "psycopg[binary]>=3.1.0",\n    "fastapi>/' pyproject.toml
+      rm -f pyproject.toml.bak uv.lock
       # Build and push
       gcloud auth configure-docker ${var.region}-docker.pkg.dev --quiet
       docker build --platform linux/amd64 -t ${local.image} .
