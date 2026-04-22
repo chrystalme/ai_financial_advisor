@@ -1,0 +1,326 @@
+name: Deploy Alex (GCP)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which guide to deploy"
+        type: choice
+        required: true
+        default: "all"
+        options: ["all", "2", "3", "4", "5", "6", "7", "8"]
+      region:
+        description: "GCP region"
+        type: string
+        required: false
+        default: "us-central1"
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "0"
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ inputs.region }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Prepare outputs dir
+        run: mkdir -p /tmp/tfout
+
+      # ------------------------------------------------------------------
+      # Guide 2 — Vertex AI embeddings
+      # ------------------------------------------------------------------
+      - name: "Guide 2: Vertex AI"
+        if: inputs.target == 'all' || inputs.target == '2'
+        working-directory: terraform/2_vertexai_gcp
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id      = "${PROJECT_ID}"
+          region          = "${REGION}"
+          embedding_model = "text-embedding-005"
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/2.json
+
+      # ------------------------------------------------------------------
+      # Guide 3 — Ingestion (Vertex Vector Search + Cloud Function)
+      # ------------------------------------------------------------------
+      - name: "Guide 3: Ingestion"
+        if: inputs.target == 'all' || inputs.target == '3'
+        working-directory: terraform/3_ingestion_gcp
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id           = "${PROJECT_ID}"
+          region               = "${REGION}"
+          embedding_dimensions = 768
+          deployed_index_id    = "alex_docs_v1"
+          index_deployed       = true
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/3.json
+
+      # ------------------------------------------------------------------
+      # Guide 4 — Researcher (Cloud Run)
+      # Needs: ingest_function_url + api_key from guide 3
+      # ------------------------------------------------------------------
+      - name: "Guide 4: Researcher"
+        if: inputs.target == 'all' || inputs.target == '4'
+        working-directory: terraform/4_researcher_gcp
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+        run: |
+          # Pull ingest endpoint + key from guide 3 state if not running in this job
+          if [ -f /tmp/tfout/3.json ]; then
+            INGEST_URL=$(jq -r '.ingest_function_url.value' /tmp/tfout/3.json)
+            INGEST_KEY=$(jq -r '.api_key.value' /tmp/tfout/3.json)
+          else
+            cd ../3_ingestion_gcp && terraform init -reconfigure >/dev/null
+            INGEST_URL=$(terraform output -raw ingest_function_url)
+            INGEST_KEY=$(terraform output -raw api_key)
+            cd ../4_researcher_gcp
+          fi
+          cat > terraform.tfvars <<EOF
+          project_id        = "${PROJECT_ID}"
+          region            = "${REGION}"
+          vertex_model_id   = "vertex_ai/gemini-2.5-pro"
+          alex_api_endpoint = "${INGEST_URL}"
+          alex_api_key      = "${INGEST_KEY}"
+          scheduler_enabled = false
+          openai_api_key    = "${OPENAI_API_KEY}"
+          serper_api_key    = "${SERPER_API_KEY}"
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/4.json
+
+      # ------------------------------------------------------------------
+      # Guide 5 — Cloud SQL
+      # ------------------------------------------------------------------
+      - name: "Guide 5: Database"
+        if: inputs.target == 'all' || inputs.target == '5'
+        working-directory: terraform/5_database_gcp
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id          = "${PROJECT_ID}"
+          region              = "${REGION}"
+          db_tier             = "db-custom-1-3840"
+          db_name             = "alex"
+          db_user             = "alex_app"
+          deletion_protection = false
+          activation_policy   = "ALWAYS"
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/5.json
+
+      # ------------------------------------------------------------------
+      # Guide 6 — Agents (5 Cloud Functions)
+      # Needs: cloudsql_connection_name, db_secret_name (5),
+      #        vector_index_endpoint_id, deployed_index_id, ingest_url (3)
+      # ------------------------------------------------------------------
+      - name: "Guide 6: Agents"
+        if: inputs.target == 'all' || inputs.target == '6'
+        working-directory: terraform/6_agents_gcp
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+        run: |
+          # Guide 5 outputs
+          if [ -f /tmp/tfout/5.json ]; then
+            CONN=$(jq -r '.connection_name.value' /tmp/tfout/5.json)
+            DB_SECRET=$(jq -r '.db_secret_name.value' /tmp/tfout/5.json)
+          else
+            cd ../5_database_gcp && terraform init -reconfigure >/dev/null
+            CONN=$(terraform output -raw connection_name)
+            DB_SECRET=$(terraform output -raw db_secret_name)
+            cd ../6_agents_gcp
+          fi
+          # Guide 3 outputs
+          if [ -f /tmp/tfout/3.json ]; then
+            VECTOR_EP=$(jq -r '.vector_index_endpoint_id.value' /tmp/tfout/3.json)
+            DEPLOYED_ID=$(jq -r '.deployed_index_id.value' /tmp/tfout/3.json)
+            INGEST_URL=$(jq -r '.ingest_function_url.value' /tmp/tfout/3.json)
+          else
+            cd ../3_ingestion_gcp && terraform init -reconfigure >/dev/null
+            VECTOR_EP=$(terraform output -raw vector_index_endpoint_id)
+            DEPLOYED_ID=$(terraform output -raw deployed_index_id)
+            INGEST_URL=$(terraform output -raw ingest_function_url)
+            cd ../6_agents_gcp
+          fi
+          cat > terraform.tfvars <<EOF
+          project_id               = "${PROJECT_ID}"
+          region                   = "${REGION}"
+          vertex_model_id          = "vertex_ai/gemini-2.5-pro"
+          cloudsql_connection_name = "${CONN}"
+          db_secret_name           = "${DB_SECRET}"
+          vector_index_endpoint_id = "${VECTOR_EP}"
+          deployed_index_id        = "${DEPLOYED_ID}"
+          alex_api_endpoint        = "${INGEST_URL}"
+          polygon_api_key          = "${POLYGON_API_KEY}"
+          polygon_plan             = "free"
+          langfuse_public_key      = "${LANGFUSE_PUBLIC_KEY}"
+          langfuse_secret_key      = "${LANGFUSE_SECRET_KEY}"
+          langfuse_host            = "${LANGFUSE_HOST}"
+          openai_api_key           = "${OPENAI_API_KEY}"
+          agents                   = ["planner", "tagger", "reporter", "charter", "retirement"]
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/6.json
+
+      # ------------------------------------------------------------------
+      # Guide 7 — API (Cloud Run) + frontend (GCS + Cloud CDN)
+      # ------------------------------------------------------------------
+      - name: "Guide 7: Frontend + API (terraform)"
+        if: inputs.target == 'all' || inputs.target == '7'
+        working-directory: terraform/7_frontend_gcp
+        env:
+          CLERK_JWKS_URL: ${{ secrets.CLERK_JWKS_URL }}
+          CLERK_ISSUER: ${{ secrets.CLERK_ISSUER }}
+        run: |
+          # Guide 5 outputs
+          if [ -f /tmp/tfout/5.json ]; then
+            CONN=$(jq -r '.connection_name.value' /tmp/tfout/5.json)
+            DB_SECRET=$(jq -r '.db_secret_name.value' /tmp/tfout/5.json)
+          else
+            cd ../5_database_gcp && terraform init -reconfigure >/dev/null
+            CONN=$(terraform output -raw connection_name)
+            DB_SECRET=$(terraform output -raw db_secret_name)
+            cd ../7_frontend_gcp
+          fi
+          # Guide 6 outputs
+          if [ -f /tmp/tfout/6.json ]; then
+            JOBS_TOPIC=$(jq -r '.jobs_topic.value' /tmp/tfout/6.json)
+          else
+            cd ../6_agents_gcp && terraform init -reconfigure >/dev/null
+            JOBS_TOPIC=$(terraform output -raw jobs_topic)
+            cd ../7_frontend_gcp
+          fi
+          cat > terraform.tfvars <<EOF
+          project_id               = "${PROJECT_ID}"
+          region                   = "${REGION}"
+          frontend_host            = "gcs"
+          frontend_domain          = ""
+          clerk_jwks_url           = "${CLERK_JWKS_URL}"
+          clerk_issuer             = "${CLERK_ISSUER}"
+          cloudsql_connection_name = "${CONN}"
+          db_secret_name           = "${DB_SECRET}"
+          jobs_topic               = "${JOBS_TOPIC}"
+          cors_origins             = "*"
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/7.json
+          # Patch API with correct CORS origin (LB IP) now that it exists
+          LB_IP=$(jq -r '.frontend_lb_ip.value' /tmp/tfout/7.json)
+          if [ -n "$LB_IP" ] && [ "$LB_IP" != "null" ]; then
+            gcloud run services update alex-api \
+              --region "${REGION}" \
+              --update-env-vars="CORS_ORIGINS=http://${LB_IP},https://${LB_IP}" \
+              --quiet
+          fi
+
+      - name: "Guide 7: Frontend build + upload"
+        if: inputs.target == 'all' || inputs.target == '7'
+        env:
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+        run: |
+          API_URL=$(jq -r '.api_url.value' /tmp/tfout/7.json)
+          BUCKET=$(jq -r '.frontend_bucket.value' /tmp/tfout/7.json)
+          if [ -z "$BUCKET" ] || [ "$BUCKET" = "null" ]; then
+            echo "frontend_host != gcs; skipping frontend upload"
+            exit 0
+          fi
+          cd frontend
+          # Build-time env for static export
+          cat > .env.production <<EOF
+          NEXT_PUBLIC_API_URL=${API_URL}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+          CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+          EOF
+          npm ci
+          NODE_ENV=production npm run build
+          # Sync static export
+          gsutil -m rsync -r -d out "gs://${BUCKET}"
+          # Create extensionless copies of HTML pages for Pages-Router routing
+          # (GCS static hosting doesn't rewrite /analysis -> /analysis.html)
+          cd out
+          find . -name "*.html" -not -name "index.html" -not -name "404.html" | while read f; do
+            dest="${f%.html}"
+            gsutil -h "Content-Type:text/html" cp "$f" "gs://${BUCKET}/${dest#./}"
+          done
+          # Cache policies
+          gsutil -m setmeta -h "Cache-Control:public,max-age=0,must-revalidate" "gs://${BUCKET}/**/*.html" || true
+          gsutil -m setmeta -h "Cache-Control:public,max-age=31536000,immutable" "gs://${BUCKET}/_next/**" || true
+
+      # ------------------------------------------------------------------
+      # Guide 8 — Enterprise monitoring
+      # ------------------------------------------------------------------
+      - name: "Guide 8: Enterprise"
+        if: inputs.target == 'all' || inputs.target == '8'
+        working-directory: terraform/8_enterprise_gcp
+        env:
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL }}
+        run: |
+          cat > terraform.tfvars <<EOF
+          project_id          = "${PROJECT_ID}"
+          region              = "${REGION}"
+          notification_email  = "${NOTIFICATION_EMAIL}"
+          vertex_model_id     = "gemini-2.5-pro"
+          api_service_name    = "alex-api"
+          agent_service_names = ["alex-planner", "alex-tagger", "alex-reporter", "alex-charter", "alex-retirement"]
+          EOF
+          terraform init -reconfigure
+          terraform apply -auto-approve
+          terraform output -json > /tmp/tfout/8.json
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## Deploy summary" >> $GITHUB_STEP_SUMMARY
+          for f in /tmp/tfout/*.json; do
+            [ -f "$f" ] || continue
+            n=$(basename "$f" .json)
+            echo "### Guide ${n}" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            jq 'with_entries(if .value.sensitive then .value.value = "***" else . end)' "$f" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          done

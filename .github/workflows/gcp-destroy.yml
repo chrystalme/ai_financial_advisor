@@ -1,0 +1,143 @@
+name: Destroy Alex (GCP)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Which guide to destroy (destroys in reverse for 'all')"
+        type: choice
+        required: true
+        default: "all"
+        options: ["all", "2", "3", "4", "5", "6", "7", "8"]
+      region:
+        description: "GCP region"
+        type: string
+        required: false
+        default: "us-central1"
+      confirm:
+        description: "Type DESTROY to confirm"
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "0"
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ inputs.region }}
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "DESTROY" ]; then
+            echo "Refusing to destroy: confirm input must equal 'DESTROY'."
+            exit 1
+          fi
+
+  destroy:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      # ------------------------------------------------------------------
+      # Helper: each step is gated to run when (target == all) OR (target == N).
+      # Order is reverse of deploy (8 -> 2).
+      # Before `terraform destroy`, the GCS buckets we created are emptied so
+      # the terraform resource can be removed (force_destroy=true is already set,
+      # but this is a belt-and-braces cleanup for any versioned objects).
+      # ------------------------------------------------------------------
+
+      - name: "Guide 8: Enterprise — destroy"
+        if: inputs.target == 'all' || inputs.target == '8'
+        working-directory: terraform/8_enterprise_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          terraform destroy -auto-approve || true
+
+      - name: "Guide 7: Frontend + API — empty bucket + destroy"
+        if: inputs.target == 'all' || inputs.target == '7'
+        working-directory: terraform/7_frontend_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          BUCKET=$(terraform output -raw frontend_bucket 2>/dev/null || echo "")
+          if [ -n "$BUCKET" ] && [ "$BUCKET" != "null" ]; then
+            gsutil -m rm -r "gs://${BUCKET}/**" 2>/dev/null || true
+          fi
+          terraform destroy -auto-approve || true
+
+      - name: "Guide 6: Agents — empty bucket + destroy"
+        if: inputs.target == 'all' || inputs.target == '6'
+        working-directory: terraform/6_agents_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          BUCKET=$(terraform output -raw functions_bucket 2>/dev/null || echo "")
+          if [ -n "$BUCKET" ] && [ "$BUCKET" != "null" ]; then
+            gsutil -m rm -r "gs://${BUCKET}/**" 2>/dev/null || true
+          fi
+          terraform destroy -auto-approve || true
+
+      - name: "Guide 5: Database — destroy"
+        if: inputs.target == 'all' || inputs.target == '5'
+        working-directory: terraform/5_database_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          terraform destroy -auto-approve || true
+
+      - name: "Guide 4: Researcher — destroy"
+        if: inputs.target == 'all' || inputs.target == '4'
+        working-directory: terraform/4_researcher_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          terraform destroy -auto-approve || true
+
+      - name: "Guide 3: Ingestion — empty bucket + destroy"
+        if: inputs.target == 'all' || inputs.target == '3'
+        working-directory: terraform/3_ingestion_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          BUCKET=$(terraform output -raw docs_bucket 2>/dev/null || echo "")
+          if [ -n "$BUCKET" ] && [ "$BUCKET" != "null" ]; then
+            gsutil -m rm -r "gs://${BUCKET}/**" 2>/dev/null || true
+          fi
+          terraform destroy -auto-approve || true
+
+      - name: "Guide 2: Vertex AI — destroy"
+        if: inputs.target == 'all' || inputs.target == '2'
+        working-directory: terraform/2_vertexai_gcp
+        continue-on-error: true
+        run: |
+          terraform init -reconfigure
+          terraform destroy -auto-approve || true
+
+      - name: Destruction summary
+        if: always()
+        run: |
+          echo "Destruction finished. Inspect the logs above for any resources that failed to delete." >> $GITHUB_STEP_SUMMARY
+          echo "The Terraform state bucket (alex-ai-prod-alex-tfstate) and Artifact Registry images are intentionally **not** deleted." >> $GITHUB_STEP_SUMMARY

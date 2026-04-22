@@ -234,4 +234,3 @@ backend/**/*_lambda.zip
 # Terraform build artifacts
 terraform/**/.build/
 
-.github/
