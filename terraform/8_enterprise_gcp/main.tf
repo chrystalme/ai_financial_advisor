@@ -2,6 +2,10 @@ terraform {
   required_providers {
     google = { source = "hashicorp/google", version = "~> 5.40" }
   }
+  backend "gcs" {
+    bucket = "alex-ai-prod-alex-tfstate"
+    prefix = "8_enterprise"
+  }
 }
 
 provider "google" {
